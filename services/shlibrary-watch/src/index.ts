@@ -1,25 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
 import { buildAvailabilityRss, buildStatusRss } from './rss.js';
 import { fetchBookStatus, fetchBookStatuses } from './shlibrary.js';
-import { sendTelegramNotification } from './telegram.js';
 import type { AvailabilityEvent, WatchedBook } from './types.js';
 import { WatchlistStore } from './watchlist.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/* eslint-disable no-console -- standalone service logs to stdout */
 
 const port = Number.parseInt(process.env.PORT ?? '3928', 10);
 const checkIntervalMinutes = Number.parseInt(process.env.CHECK_INTERVAL_MINUTES ?? '30', 10);
 const adminToken = process.env.SHLIBRARY_WATCH_TOKEN ?? '';
-const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
-const telegramChatId = process.env.TELEGRAM_CHAT_ID ?? '';
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${port}`).replace(/\/$/, '');
-const dataDir = process.env.DATA_DIR ?? path.join(__dirname, '..', 'data');
+const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 
 const store = new WatchlistStore(dataDir);
 const app = new Hono();
@@ -52,11 +48,12 @@ async function runCheck(): Promise<{ checked: number; newlyAvailable: number }> 
     const titleById = new Map(books.map((book) => [book.recordId, book.title]));
     const statuses = await fetchBookStatuses(
         books.map((book) => book.recordId),
-        titleById,
+        titleById
     );
 
     let newlyAvailable = 0;
     const updatedBooks: WatchedBook[] = [];
+    const newEvents: AvailabilityEvent[] = [];
 
     for (const book of books) {
         const status = statuses.get(book.recordId);
@@ -97,25 +94,13 @@ async function runCheck(): Promise<{ checked: number; newlyAvailable: number }> 
                 copies: status.borrowableCopies,
                 occurredAt: status.checkedAt,
             };
-            await store.appendEvent(event);
-
-            if (telegramBotToken && telegramChatId && book.lastNotifiedAt !== status.checkedAt) {
-                try {
-                    await sendTelegramNotification({
-                        botToken: telegramBotToken,
-                        chatId: telegramChatId,
-                        event,
-                    });
-                    nextBook.lastNotifiedAt = status.checkedAt;
-                } catch (error) {
-                    console.error('Telegram notification failed:', error);
-                }
-            }
+            newEvents.push(event);
         }
 
         updatedBooks.push(nextBook);
     }
 
+    await Promise.all(newEvents.map((event) => store.appendEvent(event)));
     await store.updateBooks(updatedBooks);
     return { checked: books.length, newlyAvailable };
 }
@@ -133,7 +118,7 @@ app.get('/', (c) =>
             statusRss: 'GET /rss/status',
         },
         docs: 'See services/shlibrary-watch/README.md',
-    }),
+    })
 );
 
 app.get('/health', (c) => c.json({ ok: true }));
@@ -158,7 +143,7 @@ app.post('/api/books', async (c) => {
     if (!title) {
         try {
             const status = await fetchBookStatus(recordId);
-            title = status.title !== recordId ? status.title : undefined;
+            title = status.title === recordId ? undefined : status.title;
         } catch {
             title = undefined;
         }
@@ -203,7 +188,7 @@ app.get('/rss/status', async (c) => {
     const titleById = new Map(books.map((book) => [book.recordId, book.title]));
     const statuses = await fetchBookStatuses(
         books.map((book) => book.recordId),
-        titleById,
+        titleById
     );
 
     const payload = books
@@ -242,7 +227,7 @@ serve(
         console.log(`shlibrary-watch listening on http://127.0.0.1:${port}`);
         console.log(`Availability RSS: ${publicBaseUrl}/rss`);
         console.log(`Status RSS: ${publicBaseUrl}/rss/status`);
-    },
+    }
 );
 
 const intervalMs = Math.max(checkIntervalMinutes, 5) * 60 * 1000;
@@ -255,7 +240,7 @@ setInterval(() => {
         },
         (error) => {
             console.error('Scheduled check failed:', error);
-        },
+        }
     );
 }, intervalMs);
 
