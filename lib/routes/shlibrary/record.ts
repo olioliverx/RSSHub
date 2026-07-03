@@ -4,7 +4,7 @@ import type { Data, DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 
 import type { AvailabilityState, CopyStatus } from './utils';
-import { buildStatusDescription, fetchBookStatus, fetchRecordTitle } from './utils';
+import { buildStatusDescription, fetchBookStatus, fetchRecordTitle, formatPrimaryStatus } from './utils';
 
 interface StoredState {
     state: AvailabilityState;
@@ -88,9 +88,10 @@ async function handler(ctx: Context): Promise<Data> {
     let items: DataItem[] = [];
 
     if (mode === 'status') {
+        const statusLabel = formatPrimaryStatus(status.state === 'available' ? status.borrowableCopies : status.allCopies);
         items = [
             {
-                title: `${title} — ${status.state}`,
+                title: `${title} — ${statusLabel}`,
                 link,
                 description: buildStatusDescription(status),
                 guid: `shlibrary:status:${recordId}:${status.checkedAt}`,
@@ -114,9 +115,10 @@ async function handler(ctx: Context): Promise<Data> {
                     availabilityKey,
                 });
 
+                const statusLabel = formatPrimaryStatus(status.borrowableCopies);
                 items = [
                     {
-                        title: `${title} 现在可借`,
+                        title: `${title} — ${statusLabel}`,
                         link,
                         description: buildStatusDescription(status),
                         guid: `shlibrary:available:${recordId}:${availabilityKey || 'unknown'}`,
