@@ -3,15 +3,24 @@ import type { Context } from 'hono';
 import type { Data, DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 
-import type { AvailabilityState } from './utils';
+import type { AvailabilityState, CopyStatus } from './utils';
 import { buildStatusDescription, fetchBookStatus, fetchRecordTitle } from './utils';
 
 interface StoredState {
     state: AvailabilityState;
     notifiedAt?: string;
+    availabilityKey?: string;
 }
 
 const STATE_CACHE_TTL = 60 * 60 * 24 * 30;
+
+function buildAvailabilityKey(copies: CopyStatus[]): string {
+    return copies
+        .filter((copy) => copy.borrowable)
+        .map((copy) => `${copy.location}|${copy.callNumber}|${copy.status}`)
+        .sort()
+        .join(';');
+}
 
 async function getStoredState(recordId: string): Promise<StoredState | undefined> {
     const raw = await cache.get(`shlibrary:state:${recordId}`, false);
@@ -90,25 +99,32 @@ async function handler(ctx: Context): Promise<Data> {
         ];
     } else {
         const previous = await getStoredState(recordId);
-        const becameAvailable = status.state === 'available' && previous?.state !== 'available';
 
-        if (becameAvailable) {
-            const notifiedAt = status.checkedAt;
-            setStoredState(recordId, {
-                state: 'available',
-                notifiedAt,
-            });
+        if (status.state === 'available') {
+            const availabilityKey = buildAvailabilityKey(status.borrowableCopies);
 
-            items = [
-                {
-                    title: `${title} 现在可借`,
-                    link,
-                    description: buildStatusDescription(status),
-                    guid: `shlibrary:available:${recordId}:${notifiedAt}`,
-                    pubDate: notifiedAt,
-                },
-            ];
-        } else if (status.state !== 'available') {
+            if (previous?.state === 'available' && previous.availabilityKey === availabilityKey) {
+                // Already notified for this availability spell — keep feed empty.
+                items = [];
+            } else {
+                const notifiedAt = status.checkedAt;
+                setStoredState(recordId, {
+                    state: 'available',
+                    notifiedAt,
+                    availabilityKey,
+                });
+
+                items = [
+                    {
+                        title: `${title} 现在可借`,
+                        link,
+                        description: buildStatusDescription(status),
+                        guid: `shlibrary:available:${recordId}:${availabilityKey || 'unknown'}`,
+                        pubDate: notifiedAt,
+                    },
+                ];
+            }
+        } else {
             setStoredState(recordId, {
                 state: status.state,
             });

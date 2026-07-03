@@ -163,6 +163,10 @@ export async function fetchBookStatus(recordId: string, titleHint?: string): Pro
 
 export function buildStatusDescription(status: BookStatus): string {
     const copies = status.state === 'available' ? status.borrowableCopies : status.allCopies;
+    if (copies.length === 0) {
+        return `<p>${status.summary}</p>`;
+    }
+
     const copyHtml = copies
         .slice(0, 6)
         .map((copy) => {
@@ -172,5 +176,5 @@ export function buildStatusDescription(status: BookStatus): string {
         })
         .join('');
 
-    return `<p>${status.summary}</p>${copyHtml ? `<ul>${copyHtml}</ul>` : ''}`;
+    return `<ul>${copyHtml}</ul>`;
 }
