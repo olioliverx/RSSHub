@@ -1,24 +1,23 @@
+import { load } from 'cheerio';
+
 import { config } from '@/config';
 import cache from '@/utils/cache';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 
 const BASE_URL = 'https://vufind.library.sh.cn';
 const STATUS_URL = `${BASE_URL}/AJAX/JSON?method=getItemStatuses`;
 const TITLE_CACHE_TTL = 60 * 60 * 24 * 7;
 
-function libraryRequestOptions(extraHeaders?: Record<string, string>) {
-    return {
-        headers: {
-            'accept-language': 'zh-CN,zh;q=0.9',
-            'user-agent': config.trueUA,
-            ...extraHeaders,
-        },
-        timeout: config.requestTimeout,
-        retry: config.requestRetry,
-    };
-}
+// zh-CN Accept-Language is required, otherwise the API answers with English labels.
+// The library WAF rejects the RSSHub UA (config.trueUA) with 403, so use the
+// browser-like config.ua instead.
+const REQUEST_HEADERS = {
+    'accept-language': 'zh-CN,zh;q=0.9',
+    'user-agent': config.ua,
+};
 
-const UNAVAILABLE_PATTERN = /cataloging|not for borrowing|编目|借出|checked out|processing|processing中|修补|装订|遗失|missing|withdrawn|declared lost|预约|on order|订购中|验收|典藏|流转中/i;
+// Unavailable wins over available: e.g. 借出（已预约） must stay unavailable
+const UNAVAILABLE_PATTERN = /cataloging|not for borrowing|编目|借出|checked out|processing|修补|装订|遗失|missing|withdrawn|declared lost|预约|on order|订购中|验收|典藏|流转中/i;
 const AVAILABLE_PATTERN = /available|可借|在馆|在架|on shelf|可阅览|已归还/i;
 
 export type AvailabilityState = 'available' | 'unavailable' | 'unknown';
@@ -32,7 +31,6 @@ export interface CopyStatus {
 
 export interface BookStatus {
     recordId: string;
-    title: string;
     link: string;
     state: AvailabilityState;
     borrowableCopies: CopyStatus[];
@@ -55,6 +53,10 @@ interface RecordResponse {
     records?: Array<{
         title?: string;
     }>;
+}
+
+function htmlToText(html: string): string {
+    return load(html).root().text().replaceAll(/\s+/g, ' ').trim();
 }
 
 export function formatPrimaryStatus(copies: CopyStatus[]): string {
@@ -83,23 +85,17 @@ export function deriveAvailabilityState(copies: CopyStatus[]): AvailabilityState
     return 'unavailable';
 }
 
-function stripHtml(value: string): string {
-    return value
-        .replaceAll(/<[^>]+>/g, ' ')
-        .replaceAll(/\s+/g, ' ')
-        .trim();
-}
-
 export function parseCopyStatuses(fullStatusHtml: string): CopyStatus[] {
+    const $ = load(fullStatusHtml);
     const copies: CopyStatus[] = [];
-    const rowPattern = /<tr>[\s\S]*?<td class="fullLocation">([\s\S]*?)<\/td>[\s\S]*?<td class="fullCallnumber">([\s\S]*?)<\/td>[\s\S]*?<td class="fullAvailability">([\s\S]*?)<\/td>/g;
 
-    for (const match of fullStatusHtml.matchAll(rowPattern)) {
-        const location = stripHtml(match[1] ?? '');
-        const callNumber = stripHtml(match[2] ?? '');
-        const status = stripHtml(match[3] ?? '');
+    $('tr').each((_, row) => {
+        const $row = $(row);
+        const location = htmlToText($row.find('td.fullLocation').html() ?? '');
+        const callNumber = htmlToText($row.find('td.fullCallnumber').html() ?? '');
+        const status = htmlToText($row.find('td.fullAvailability').html() ?? '');
         if (!location && !callNumber && !status) {
-            continue;
+            return;
         }
         copies.push({
             location,
@@ -107,45 +103,35 @@ export function parseCopyStatuses(fullStatusHtml: string): CopyStatus[] {
             status,
             borrowable: isCopyBorrowable(status),
         });
-    }
+    });
 
     return copies;
 }
 
+function formatCopyLine(copy: CopyStatus): string {
+    const location = copy.location || 'Unknown location';
+    const callNumber = copy.callNumber ? ` (${copy.callNumber})` : '';
+    return `${location}${callNumber}: ${copy.status}`;
+}
+
 function buildSummary(state: AvailabilityState, borrowableCopies: CopyStatus[], allCopies: CopyStatus[], fallback: string): string {
-    if (state === 'available') {
-        const details = borrowableCopies
-            .slice(0, 4)
-            .map((copy) => {
-                const location = copy.location || 'Unknown location';
-                const callNumber = copy.callNumber ? ` (${copy.callNumber})` : '';
-                return `${location}${callNumber}: ${copy.status}`;
-            })
-            .join('<br/>');
-        return details || fallback || '可借';
-    }
-    if (allCopies.length > 0) {
-        return allCopies
-            .slice(0, 4)
-            .map((copy) => {
-                const location = copy.location || 'Unknown location';
-                const callNumber = copy.callNumber ? ` (${copy.callNumber})` : '';
-                return `${location}${callNumber}: ${copy.status}`;
-            })
-            .join('<br/>');
-    }
-    return fallback || '暂不可借';
+    const copies = state === 'available' ? borrowableCopies : allCopies;
+    const details = copies
+        .slice(0, 4)
+        .map((copy) => formatCopyLine(copy))
+        .join('<br/>');
+    return details || fallback || (state === 'available' ? '可借' : '暂不可借');
 }
 
 export async function fetchRecordTitle(recordId: string): Promise<string> {
-    const { data } = await got(`${BASE_URL}/api/v1/record`, {
-        ...libraryRequestOptions(),
-        searchParams: {
+    const data = await ofetch<RecordResponse>(`${BASE_URL}/api/v1/record`, {
+        headers: REQUEST_HEADERS,
+        query: {
             id: recordId,
         },
+        timeout: config.requestTimeout,
     });
-    const payload = data as RecordResponse;
-    const title = payload.records?.[0]?.title;
+    const title = data.records?.[0]?.title;
     if (!title) {
         throw new Error(`No title returned for record ${recordId}`);
     }
@@ -157,32 +143,30 @@ export async function resolveRecordTitle(recordId: string, titleHint?: string): 
         return titleHint.trim();
     }
 
-    return (await cache.tryGet(
-        `shlibrary:title:${recordId}`,
-        async () => {
-            try {
-                return await fetchRecordTitle(recordId);
-            } catch {
-                return recordId;
-            }
-        },
-        TITLE_CACHE_TTL
-    )) as string;
+    try {
+        // Only successful lookups are cached, so a transient API failure
+        // does not pin the record UUID as the title for a whole week.
+        return (await cache.tryGet(`shlibrary:title:${recordId}`, () => fetchRecordTitle(recordId), TITLE_CACHE_TTL)) as string;
+    } catch {
+        return recordId;
+    }
 }
 
-export async function fetchBookStatus(recordId: string, titleHint?: string): Promise<BookStatus> {
+export async function fetchBookStatus(recordId: string): Promise<BookStatus> {
     const body = new URLSearchParams();
     body.append('id[]', recordId);
 
-    const { data } = await got.post(STATUS_URL, {
-        ...libraryRequestOptions({
-            'content-type': 'application/x-www-form-urlencoded',
-        }),
-        body: body.toString(),
+    const data = await ofetch<ItemStatusResponse>(STATUS_URL, {
+        method: 'POST',
+        headers: REQUEST_HEADERS,
+        body,
+        timeout: config.requestTimeout,
+        // The endpoint answers with content-type application/javascript,
+        // so ofetch would not parse the JSON body on its own
+        parseResponse: JSON.parse,
     });
 
-    const payload = data as ItemStatusResponse;
-    const status = payload.data?.statuses?.[0];
+    const status = data.data?.statuses?.[0];
     if (!status) {
         throw new Error(`No status returned for record ${recordId}`);
     }
@@ -190,11 +174,10 @@ export async function fetchBookStatus(recordId: string, titleHint?: string): Pro
     const allCopies = parseCopyStatuses(status.full_status ?? '');
     const borrowableCopies = allCopies.filter((copy) => copy.borrowable);
     const state = deriveAvailabilityState(allCopies);
-    const fallback = stripHtml(status.availability_message ?? '');
+    const fallback = htmlToText(status.availability_message ?? '');
 
     return {
         recordId,
-        title: titleHint ?? recordId,
         link: `${BASE_URL}/Record/${recordId}`,
         state,
         borrowableCopies,
@@ -212,11 +195,7 @@ export function buildStatusDescription(status: BookStatus): string {
 
     const copyHtml = copies
         .slice(0, 6)
-        .map((copy) => {
-            const location = copy.location || 'Unknown location';
-            const callNumber = copy.callNumber ? ` (${copy.callNumber})` : '';
-            return `<li>${location}${callNumber}: ${copy.status}</li>`;
-        })
+        .map((copy) => `<li>${formatCopyLine(copy)}</li>`)
         .join('');
 
     return `<ul>${copyHtml}</ul>`;
