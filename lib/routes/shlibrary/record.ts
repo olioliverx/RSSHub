@@ -4,7 +4,7 @@ import type { Data, DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 
 import type { AvailabilityState, CopyStatus } from './utils';
-import { buildStatusDescription, fetchBookStatus, fetchRecordTitle, formatPrimaryStatus } from './utils';
+import { buildStatusDescription, fetchBookStatus, formatPrimaryStatus, resolveRecordTitle } from './utils';
 
 interface StoredState {
     state: AvailabilityState;
@@ -46,6 +46,7 @@ export const route: Route = {
     example: '/shlibrary/record/67b350c3-8fa8-42a4-ae13-7ab92e4c89e9',
     parameters: {
         id: '书目 record ID，可在 https://vufind.library.sh.cn/Record/<id> 链接中找到',
+        title: '可选，书目名称。当上海图书馆标题接口不可达时可手动指定',
     },
     description: `监控上海图书馆 VuFind 单本书的可借状态。当该书**变为可借**时，路由才会产生新的 RSS 条目，适合配合 [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot) 推送到 Telegram。
 
@@ -80,9 +81,10 @@ record ID 可在登录 [My Favorites](https://vufind.library.sh.cn/MyResearch/Fa
 async function handler(ctx: Context): Promise<Data> {
     const recordId = ctx.req.param('id');
     const mode = ctx.req.query('mode') ?? 'alert';
+    const titleHint = ctx.req.query('title');
 
-    const title = await fetchRecordTitle(recordId);
-    const status = await fetchBookStatus(recordId, title);
+    const status = await fetchBookStatus(recordId);
+    const title = await resolveRecordTitle(recordId, titleHint);
     const link = status.link;
 
     let items: DataItem[] = [];
