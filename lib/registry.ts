@@ -74,7 +74,8 @@ if (config.isPackage) {
         default:
             modules = directoryImport({
                 targetDirectoryPath: path.join(__dirname, './routes'),
-                importPattern: /\.tsx?$/,
+                // Exclude *.test.ts(x) so route unit tests are not loaded as routes
+                importPattern: /(?<!\.test)\.tsx?$/,
             }) as typeof modules;
     }
 }
