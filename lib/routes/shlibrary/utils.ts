@@ -1,12 +1,22 @@
+import { config } from '@/config';
+import cache from '@/utils/cache';
 import got from '@/utils/got';
 
 const BASE_URL = 'https://vufind.library.sh.cn';
 const STATUS_URL = `${BASE_URL}/AJAX/JSON?method=getItemStatuses`;
+const TITLE_CACHE_TTL = 60 * 60 * 24 * 7;
 
-const LIBRARY_REQUEST_HEADERS = {
-    'accept-language': 'zh-CN,zh;q=0.9',
-    'user-agent': 'RSSHub',
-};
+function libraryRequestOptions(extraHeaders?: Record<string, string>) {
+    return {
+        headers: {
+            'accept-language': 'zh-CN,zh;q=0.9',
+            'user-agent': config.trueUA,
+            ...extraHeaders,
+        },
+        timeout: config.requestTimeout,
+        retry: config.requestRetry,
+    };
+}
 
 const UNAVAILABLE_PATTERN = /cataloging|not for borrowing|编目|借出|checked out|processing|processing中|修补|装订|遗失|missing|withdrawn|declared lost|预约|on order|订购中|验收|典藏|流转中/i;
 const AVAILABLE_PATTERN = /available|可借|在馆|在架|on shelf|可阅览|已归还/i;
@@ -129,13 +139,35 @@ function buildSummary(state: AvailabilityState, borrowableCopies: CopyStatus[], 
 
 export async function fetchRecordTitle(recordId: string): Promise<string> {
     const { data } = await got(`${BASE_URL}/api/v1/record`, {
+        ...libraryRequestOptions(),
         searchParams: {
             id: recordId,
         },
-        headers: LIBRARY_REQUEST_HEADERS,
     });
     const payload = data as RecordResponse;
-    return payload.records?.[0]?.title ?? recordId;
+    const title = payload.records?.[0]?.title;
+    if (!title) {
+        throw new Error(`No title returned for record ${recordId}`);
+    }
+    return title;
+}
+
+export async function resolveRecordTitle(recordId: string, titleHint?: string): Promise<string> {
+    if (titleHint?.trim()) {
+        return titleHint.trim();
+    }
+
+    return (await cache.tryGet(
+        `shlibrary:title:${recordId}`,
+        async () => {
+            try {
+                return await fetchRecordTitle(recordId);
+            } catch {
+                return recordId;
+            }
+        },
+        TITLE_CACHE_TTL,
+    )) as string;
 }
 
 export async function fetchBookStatus(recordId: string, titleHint?: string): Promise<BookStatus> {
@@ -143,11 +175,10 @@ export async function fetchBookStatus(recordId: string, titleHint?: string): Pro
     body.append('id[]', recordId);
 
     const { data } = await got.post(STATUS_URL, {
-        body: body.toString(),
-        headers: {
-            ...LIBRARY_REQUEST_HEADERS,
+        ...libraryRequestOptions({
             'content-type': 'application/x-www-form-urlencoded',
-        },
+        }),
+        body: body.toString(),
     });
 
     const payload = data as ItemStatusResponse;
