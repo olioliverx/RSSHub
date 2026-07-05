@@ -166,7 +166,7 @@ export async function resolveRecordTitle(recordId: string, titleHint?: string): 
                 return recordId;
             }
         },
-        TITLE_CACHE_TTL,
+        TITLE_CACHE_TTL
     )) as string;
 }
 
