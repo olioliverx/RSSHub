@@ -49,6 +49,8 @@ export const route: Route = {
     },
     description: `监控上海图书馆 VuFind 单本书的可借状态。当该书**变为可借**时，路由才会产生新的 RSS 条目，适合配合 [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot) 推送到 Telegram。
 
+Feed \`<ttl>\` 固定为 **60** 分钟，RSStT 会按此间隔推迟监控，避免打满 Vercel 免费 Fluid Active CPU（建议最多同时监控约 5 本）。
+
 **添加监控：** 在 RSS-to-Telegram-Bot 中订阅本路由，例如：
 \`/sub https://your-rsshub.app/shlibrary/record/67b350c3-8fa8-42a4-ae13-7ab92e4c89e9\`
 
@@ -80,10 +82,19 @@ record ID 可在登录 [My Favorites](https://vufind.library.sh.cn/MyResearch/Fa
     handler,
 };
 
+// Keep bot polls and CDN/edge cache aligned with the free-tier CPU budget.
+// RSS-to-Telegram-Bot defers RSSHub feeds according to <ttl> (minutes).
+const POLL_INTERVAL_MINUTES = 60;
+const POLL_CACHE_SECONDS = POLL_INTERVAL_MINUTES * 60;
+
 async function handler(ctx: Context): Promise<Data> {
     const recordId = ctx.req.param('id');
     const mode = ctx.req.query('mode') ?? 'alert';
     const titleHint = ctx.req.query('title');
+
+    // Advertise a 60-minute freshness window so RSStT / CDN do not re-hit
+    // the Shanghai Library API every few minutes (Vercel Fluid Active CPU).
+    ctx.header('Cache-Control', `public, max-age=${POLL_CACHE_SECONDS}, s-maxage=${POLL_CACHE_SECONDS}`);
 
     // Status is the source of truth and must succeed; title resolution
     // falls back to the record ID internally, so it can never fail the route.
@@ -139,6 +150,8 @@ async function handler(ctx: Context): Promise<Data> {
         description: `上海图书馆 ${title} 可借状态提醒`,
         language: 'zh-CN',
         allowEmpty: true,
+        // Overrides the default routeExpire-derived <ttl>; RSStT respects this.
+        ttl: POLL_INTERVAL_MINUTES,
         item: items,
     };
 }
