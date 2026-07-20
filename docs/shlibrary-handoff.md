@@ -17,7 +17,7 @@ Build **personal book-borrow alerts** for [Shanghai Library VuFind OPAC](https:/
 | Add/remove via Telegram                   | `/sub` and `/unsub` on RSS-to-Telegram-Bot                   |
 | Notify when a book **becomes borrowable** | RSS item only on availability transition                     |
 | Use original Chinese status text          | `Accept-Language: zh-CN`; titles like `社会契约论 — 已归还`  |
-| No repeat alerts every ~15 min            | Stable `guid` + in-memory state cache                        |
+| No repeat alerts every ~60 min            | Stable `guid` + in-memory state cache                        |
 | Run on Vercel serverless                  | Single RSSHub route; resilient fetch for cross-border issues |
 
 **Out of scope (by design):**
@@ -36,7 +36,7 @@ User copies record UUID from My Favorites (one-time)
         ↓
 /sub https://<rsshub-domain>/shlibrary/record/<uuid>
         ↓
-RSS-to-Telegram-Bot polls RSSHub ~every 15 min
+RSS-to-Telegram-Bot polls RSSHub ~every 60 min (feed `<ttl>60</ttl>`)
         ↓
 RSSHub → POST vufind.library.sh.cn/AJAX/JSON?method=getItemStatuses
         ↓
