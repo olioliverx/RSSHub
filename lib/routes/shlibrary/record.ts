@@ -18,7 +18,7 @@ function buildAvailabilityKey(copies: CopyStatus[]): string {
     return copies
         .filter((copy) => copy.borrowable)
         .map((copy) => `${copy.location}|${copy.callNumber}|${copy.status}`)
-        .toSorted()
+        .toSorted((a, b) => a.localeCompare(b))
         .join(';');
 }
 
@@ -89,6 +89,9 @@ const POLL_CACHE_SECONDS = POLL_INTERVAL_MINUTES * 60;
 
 async function handler(ctx: Context): Promise<Data> {
     const recordId = ctx.req.param('id');
+    if (!recordId) {
+        throw new Error('Missing Shanghai Library record id');
+    }
     const mode = ctx.req.query('mode') ?? 'alert';
     const titleHint = ctx.req.query('title');
 
