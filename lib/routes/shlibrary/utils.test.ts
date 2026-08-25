@@ -52,7 +52,7 @@ describe('shlibrary utils', () => {
 
         it('treats empty or unknown statuses as not borrowable', () => {
             expect(isCopyBorrowable('')).toBe(false);
-            expect(isCopyBorrowable('   ')).toBe(false);
+            expect(isCopyBorrowable(' '.repeat(3))).toBe(false);
             expect(isCopyBorrowable('神秘状态')).toBe(false);
         });
     });
