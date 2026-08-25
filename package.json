@@ -256,6 +256,7 @@
             "google-play-scraper>ramda": "^0.32.0",
             "google-play-scraper>tough-cookie": "^6.0.0",
             "hasown": "npm:@nolyfill/hasown@^1",
+            "htmlparser2": "10.1.0",
             "is-core-module": "npm:@nolyfill/is-core-module@^1",
             "request>form-data": "^2.5.5",
             "rss-parser@3.13.0>entities": "^7.0.0",
