@@ -9,6 +9,7 @@ import type { RequestInfo } from 'undici';
 import undici from 'undici';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
+import { extraCaDispatcher } from '@/utils/extra-ca';
 import { PRESETS } from '@/utils/header-generator';
 
 const originalGlobals = {
@@ -132,7 +133,7 @@ describe('request-rewriter', () => {
                 // ignore
             }
             const options = fetchSpy.mock.lastCall?.[1];
-            expect(options?.dispatcher).toBeUndefined();
+            expect(options?.dispatcher).toBe(extraCaDispatcher);
         }
     });
 
@@ -181,7 +182,7 @@ describe('request-rewriter', () => {
                 // ignore
             }
             const options = fetchSpy.mock.lastCall?.[1];
-            expect(options?.dispatcher).toBeUndefined();
+            expect(options?.dispatcher).toBe(extraCaDispatcher);
         }
     });
 

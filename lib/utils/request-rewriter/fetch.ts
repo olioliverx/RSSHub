@@ -5,6 +5,7 @@ import type { RequestInfo, RequestInit, Response } from 'undici';
 import undici, { Request } from 'undici';
 
 import { config } from '@/config';
+import { extraCaDispatcher } from '@/utils/extra-ca';
 import { generatedHeaders as HEADER_LIST, generateHeaders } from '@/utils/header-generator';
 import logger from '@/utils/logger';
 import proxy from '@/utils/proxy';
@@ -92,6 +93,8 @@ const wrappedFetch: typeof undici.fetch = async (input: RequestInfo, init?: Requ
             }
         }
     }
+
+    options.dispatcher ??= init?.dispatcher ?? extraCaDispatcher;
 
     await limiterQueue.removeTokens(1);
 

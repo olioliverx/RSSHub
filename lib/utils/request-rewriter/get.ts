@@ -2,10 +2,12 @@
 import type http from 'node:http';
 import type https from 'node:https';
 import type { ParsedUrlQuery } from 'node:querystring';
+import type { ConnectionOptions } from 'node:tls';
 
 import type { HeaderGeneratorOptions } from 'header-generator';
 
 import { config } from '@/config';
+import { extraCaList } from '@/utils/extra-ca';
 import { generatedHeaders as HEADER_LIST, generateHeaders } from '@/utils/header-generator';
 import logger from '@/utils/logger';
 import proxy from '@/utils/proxy';
@@ -19,6 +21,7 @@ interface ExtendedRequestOptions extends http.RequestOptions {
     search?: string;
     query?: string | ParsedUrlQuery;
     headers?: http.OutgoingHttpHeaders;
+    ca?: ConnectionOptions['ca'];
 }
 
 const getWrappedGet = <T extends Get>(origin: T): T => {
@@ -92,6 +95,10 @@ const getWrappedGet = <T extends Get>(origin: T): T => {
             ) {
                 options.agent = proxy.agent;
             }
+        }
+
+        if (url.protocol === 'https:' && options.ca === undefined && options.agent === undefined) {
+            options.ca = extraCaList;
         }
 
         // Remove the headerGeneratorOptions before passing to the original function
