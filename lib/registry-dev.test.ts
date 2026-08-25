@@ -127,6 +127,16 @@ describe('createDevRegistry', () => {
         expect(directoryImportMock).toHaveBeenCalledTimes(1);
     });
 
+    it('excludes route unit tests from directory import', async () => {
+        const { app } = buildApp();
+        await app.request('/flat/single');
+        const importPattern = directoryImportMock.mock.calls[0][0].importPattern as RegExp;
+        expect(importPattern.test('/shlibrary/utils.ts')).toBe(true);
+        expect(importPattern.test('/shlibrary/record.tsx')).toBe(true);
+        expect(importPattern.test('/shlibrary/utils.test.ts')).toBe(false);
+        expect(importPattern.test('/shlibrary/record.test.tsx')).toBe(false);
+    });
+
     it('imports each top directory at most once', async () => {
         const { app } = buildApp();
         await app.request('/flat/single');
